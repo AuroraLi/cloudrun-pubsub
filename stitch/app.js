@@ -35,37 +35,12 @@ const pubSubClient = new PubSub({project_id});
 // Creates a client; cache this for further use.
 const subClient = new v1.SubscriberClient();
 
-async function createSubscriptionWithFilter(subscriptionNameOrId,filterString, frameNumber,videoName) {
+function pad(num, size) {
+    num = num.toString();
+    while (num.length < size) num = "0" + num;
+    return num;
+}
 
-    const callback = function(err, subscription, apiResponse) {
-        if (err){
-            console.log("cannot create subscrpition: " + err)
-            throw err;
-        }
-        console.log("here is the new subscription")
-        console.log(subscription)
-        pubSubClient.getSubscriptions()
-        listenForMessages(subscriptionNameOrId,frameNumber,{})
-
-        
-    };
-    // Creates a new subscription
-    pubSubClient
-      .topic(imageTopic)
-      .createSubscription(subscriptionNameOrId, {
-        filter: filterString,
-      }).then((data) => {
-    //     const subscription = data[0];
-    //     const apiResponse = data[1];
-    //     console.log("the subscription is " + subscription);
-    //     console.log("api response: "+ apiResponse);
-    //     console.log(pubSubClient.getSubscriptions());
-    //     console.log(`Created subscription ${subscriptionNameOrId} with filter ${filterString}.`)
-           listenForMessages(subscriptionNameOrId,frameNumber,processVideo(videoName,subscriptionNameOrId))
-     } );
-    // listenForMessages(subscriptionNameOrId,frameNumber);
-    // return pubSubClient.subscription(subscriptionNameOrId)
-  }
 
 async function deleteSubscription(subscriptionNameOrId) {
 // Deletes the subscription
@@ -73,130 +48,107 @@ async function deleteSubscription(subscriptionNameOrId) {
     console.log(`Subscription ${subscriptionNameOrId} deleted.`);
 }
 
-// function listenForMessages(subscriptionName,frameNumber) {
-//     // References an existing subscription
-//     console.log(subscriptionName)
-//     let subscription = pubSubClient.subscription(subscriptionName)
-//     // Create an event handler to handle messages
-//     let messageCount = 0;
-//     const messageHandler = message => {
-//       console.log(`Received message ${message.id}:`);
-//       console.log(`\tData: ${message.data}`);
-//       console.log(`\tAttributes: ${message.attributes}`);
-//       messageCount += 1;
-     
-//       fs.writeFile(`pic${message.attributes.seqNum}.png`,message.data,function (err){
-//           if (err) return console.log(err);
-//           console.log(`Saved frame number ${message.attributes.seqNum}`)
-//       })
-//       // "Ack" (acknowledge receipt of) the message
-//       message.ack();
-//     if (messageCount == frameNumber){
-//         subscription.removeListener('message', messageHandler);
-//         console.log(`${messageCount} message(s) received.`);
-//         return
-//     }
-//     };
   
-//     // Listen for new messages until timeout is hit
-//     subscription.on('message', messageHandler);
-  
-//     setTimeout(() => {
-//       subscription.removeListener('message', messageHandler);
-//       console.log(`${messageCount} message(s) received. Timed out`);
-//     }, 500000);
-//     // return
-//   }
-  
-async function listenForMessages(subscriptionNameOrId,frameNumber, callback) {
+async function listenForMessages(subscriptionNameOrId,frameNumber,videoName, callback) {
     // The low level API client requires a name only.
     const formattedSubscription =
       subscriptionNameOrId.indexOf('/') >= 0
         ? subscriptionNameOrId
         : subClient.subscriptionPath(project_id, subscriptionNameOrId);
-    console.log(formattedSubscription)
+    console.log(`looking for ${frameNumber} frames, type of frameNumber is ${typeof frameNumber}`)
     // The maximum number of messages returned for this request.
     // Pub/Sub may return fewer than the number specified.
+    const subscription = pubSubClient.subscription(formattedSubscription);
+
+    let messageCount = 0;
+    var dir = `./${videoName}`;
     
-    const request = {
-      subscription: formattedSubscription,
-      maxMessages: frameNumber,
-    };
-    // References an existing subscription
-  
-    // // The subscriber pulls a specified number of messages.
-    const [response] = await subClient.pull(request);
-  
-    // // Process the messages.
-    const ackIds = [];
-    console.log(response);
-    for (const message of response.receivedMessages) {
-      console.log(`Received message: ${message.message.data}`);
-      fs.writeFile(`pic${message.attributes.seqNum}.png`,message.data,function (err){
-          if (err) return console.log(err);
-          console.log(`Saved frame number ${message.attributes.seqNum}`)
-      })
-      ackIds.push(message.ackId);
+    const messageHandler = message => {
+    messageCount += 1;
+    imageName = pad(message.attributes.seqNum,3)
+    if (!fs.existsSync(dir)){ fs.mkdirSync(dir); }
+    fs.writeFile(`${dir}/pic${imageName}.png`,message.data,function (err){
+        if (err) return console.log(err);
+        console.log(`Saved frame number ${message.attributes.seqNum}`)
+    if (messageCount == frameNumber) {
+        console.log(`All ${frameNumber} frames are received`);
+        subscription.removeListener('message', messageHandler);
+        if(callback) callback(subscriptionNameOrId, videoName); 
+        return;
     }
-//     let messageCount = 0;
-//     const messageHandler = message => {
-//     messageCount += 1;
-//     fs.writeFile(`pic${message.attributes.seqNum}.png`,message.data,function (err){
-//               if (err) return console.log(err);
-//               console.log(`Saved frame number ${message.attributes.seqNum}`)
-//           })
+    })
 
-//     // "Ack" (acknowledge receipt of) the message
-//     message.ack();
-//   };
-//   // Listen for new messages until timeout is hit
-//   subscription.on('message', messageHandler);
-
-//   setTimeout(() => {
-//     subscription.removeListener('message', messageHandler);
-//     console.log(`${messageCount} message(s) received.`);
+    // "Ack" (acknowledge receipt of) the message
+    message.ack();
+  };
+  // Listen for new messages until timeout is hit
+  subscription.on('message', messageHandler);
+  
+  setTimeout(() => {
+    subscription.removeListener('message', messageHandler);
+    console.log(`${messageCount} message(s) received, missing ${frameNumber - messageCount} frames.`);
+    if(callback) callback(subscriptionNameOrId, videoName); 
     //  callback();
-//   }, 100 * 1000);
+  }, 100 * 1000);
 
+
+    // const request = {
+    //   subscription: formattedSubscription,
+    //   maxMessages: MAX_DIGEST,
+    // };
+    
+    // // The subscriber pulls messages.
+    // const [response] = await subClient.pull(request);
   
-    if (ackIds.length !== 0) {
-      // Acknowledge all of the messages. You could also acknowledge
-      // these individually, but this is more efficient.
-      const ackRequest = {
-        subscription: formattedSubscription,
-        ackIds: ackIds,
-      };
+    // // // Process the messages.
+    // const ackIds = [];
+    // var dir = `./${videoName}`;
+    // // console.log(response);
+    // for (const message of response.receivedMessages) {
+        
+    //     if (!fs.existsSync(dir)){
+    //         fs.mkdirSync(dir);
+    //     }
+    // //   console.log(`Received message: ${JSON.stringify(message)}`);
+    //   imageName = pad(message.message.attributes.seqNum,3)
+    //   fs.writeFile(`${dir}/pic${imageName}.png`,message.message.data,function (err){
+    //       if (err) return console.log(err); })
+    //   ackIds.push(message.ackId);
+    // }  
+    // if (ackIds.length !== 0) {
+    //   // Acknowledge all of the messages. You could also acknowledge
+    //   // these individually, but this is more efficient.
+    //   const ackRequest = {
+    //     subscription: formattedSubscription,
+    //     ackIds: ackIds,
+    //   };
   
-      await subClient.acknowledge(ackRequest);
-    }
+    //   await subClient.acknowledge(ackRequest);
+    // }
   
-    console.log('Done.');
-    callback();
+    // console.log('Done.');
+    // if(callback) callback(subscriptionNameOrId, videoName); 
     
   }
 
-async function getVideo(frameNumber, videoName, callback){
-    var filter = `attributes.videoName = \"${videoName}\"`
-    var subscriptionName = "test" + Date.now();
-    let response = await createSubscriptionWithFilter(subscriptionName,filter, frameNumber,videoName)//.then(listenForMessages(subscriptionName,frameNumber,processVideo(videoName,subscriptionName)));
-    console.log(response)
-    // await listenForMessages(subscriptionName,frameNumber)
-
-    callback();
-}
-function processVideo(videoName, subscriptionName){
+async function processVideo(videoName,subscriptionName){
+    fs.readdir(`./${videoName}/`, (err, files) => {
+        files.forEach(file => {
+          console.log(file);
+        });
+      });
+      console.log(videoName)
     const ffmpeg_cmd = ffmpeg()
     //      .input(`${outputPath}/${md5}.mp4`)
-          .input("pic%05d.png")
+          .input(`./${videoName}/pic%03d.png`)
           .inputOptions(
-              '-r', '1',
+            //   '-r', '1',
               '-f', 'image2')
           .native()
           .noAudio()
-          .output(videoName)
-          .outputOptions(
-            '-r', '1'
-          );
+          .output(`${videoName}.mp4`)
+        //   .outputOptions('-r', '1')
+            ;
     
         ffmpeg_cmd.on('start', function() {
           console.log(`Started processing video`);
@@ -208,9 +160,12 @@ function processVideo(videoName, subscriptionName){
         //   throw new Error(`Unable to process ${videoName}: ${err}`);
         });
     
-        ffmpeg_cmd.on('end', function() {
+        ffmpeg_cmd.on('end', function(stdout, stderr) {
+            console.log(stderr)
           console.log("Finished processing video");
           // post files to queue
+          uploadToBucket(videoName)
+          deleteSubscription(subscriptionName)
         })
         try {
             ffmpeg_cmd.run();
@@ -220,15 +175,17 @@ function processVideo(videoName, subscriptionName){
             console.log(e);
             // res.status(500).send();
         }
-        deleteSubscription(subscriptionName)
+        // deleteSubscription(subscriptionName)
 }
 
 async function uploadToBucket(filename){
     // Check file
-    if (fs.existsSync(filename)){
-        console.log(filename + "already created")
-        await storage.bucket(outputBucket).upload(filename, {
-        destination: "/",
+    console.log(filename)
+    file = `${filename}.mp4`
+    if (fs.existsSync(file)){
+        console.log(file + "already created")
+        await storage.bucket(outputBucket).upload(file, {
+        destination: file,
         // Support for HTTP requests made with `Accept-Encoding: gzip`
         gzip: true,
         metadata: {
@@ -239,7 +196,11 @@ async function uploadToBucket(filename){
         },
       });
     }
-    else {console.log("Video is not available")}
+    else {
+        console.log("Video is not available");
+        // await new Promise(r => setTimeout(r, 2000));
+
+    }
    
 }
 
@@ -250,10 +211,17 @@ app.get("/", (req, res) => {
 app.post('/', async (req, res) => {
     try{
         console.log(req.body);
-    const totalFrame = req.body.frames;
+    console.log(`total frame is ${req.body.frame}, type ${typeof req.body.frame}`)
+    const totalFrame  = parseInt(req.body.frame);
+    console.log(`total frame is ${totalFrame}, type ${typeof totalFrame}`)
     const videoName = req.body.videoName;
-    const upload = uploadToBucket(videoName)
-    getVideo(totalFrame,videoName,uploadToBucket(videoName));
+    const subscriptionName = req.body.subscriptionName;
+    // await listenForMessages(subscriptionName,totalFrame,processVideo(videoName,subscriptionName));
+    await listenForMessages(subscriptionName,totalFrame,videoName, function (subscriptionName,videoName){
+        processVideo(videoName, subscriptionName)
+        
+    })
+    // getVideo(totalFrame,videoName,console.log("test"));
     // uploadToBucket(videoName);
     res.send('File uploaded!')
     }

@@ -24,30 +24,42 @@ const ffmpegWaitMs = process.env.FFMPEG_WAIT_MS || "20000"
 
 const storage = new Storage();
 const pubSub = new PubSub();
+// const options: PublishOptions = {
+//     batching: {
+//         maxMessages: 16,
+//         maxMilliseconds: 10 * 1000,
+//       },
+//   };
+//   const topic = pubSub.topic(topicName,options);
+const topic = pubSub.topic(topicName);
+
 app.use(bodyParser.json());
 
 async function writeFrame(seqNum: number, data: Buffer, videoName: string) { //: Promise<string>
 //   const topic = pubsub.projectTopicPath(projectId, topicName);
 //   console.log(topic);
 //   console.log(pubsub.initialize());
+
+  const flow = topic.flowControlled();
   console.log(`Writing frame ${seqNum}, ${data.byteLength} bytes to ${projectId}, ${topicName}`);
 
   const customAttributes: Attributes = {
     seqNum: seqNum.toString(),
     name: videoName
   };
-
+  
   console.log(`Publishing frame ${seqNum}`);
-  const messageId = await pubSub.topic(topicName).publish(data, customAttributes, function(err){
-      if (err) {
-          console.log(err)
-        };
-  });
-console.log(`Message ${messageId} published.`);
-
+//   const messageId = await pubSub.topic(topicName).publish(data, customAttributes, function(err){
+//       if (err) {
+//           console.log(err)
+//         };
+//   });
+// console.log(`Message ${messageId} published.`);
+  console.log(`topic has options settings ${topic.publisher}`)
+    const messageId = await topic.publish(data,customAttributes)
 
     // const wait = flow.publish(messageData);
-    // // const wait = topic.publish(data,customAttributes)
+    // const wait = flow.publish({data: data,attributes: customAttributes})
     // if (wait) {
     //   await wait;
     // }
@@ -94,14 +106,12 @@ async function writeFrames(inputFile: string, outputPath: string) {
     awaitWriteFinish: true,
   });
   //create pub sub publisher
-//   const options: PublishOptions = {
-//     flowControlOptions: {
-//       maxOutstandingMessages: 50,
-//       maxOutstandingBytes: 10 * 1024 * 1024, // 10 MB
-//     },
-//   };
-//   const topic = pubSub.topic(topicName,options);
-//   const flow = topic.flowControlled();
+  topic.setPublishOptions({
+    batching: {
+      maxMilliseconds: 1000,
+      maxMessages: 32
+    }
+  });
   
 
   fswatcher.on('ready', () => {
@@ -223,7 +233,7 @@ app.get("/", (req, res) => {
   });
 
 app.post("/", (req, res) => {
-    const receivedEvent = HTTP.toEvent({ headers: req.headers, body: req.body });
+    // const receivedEvent = HTTP.toEvent({ headers: req.headers, body: req.body });
     // console.log(receivedEvent);
     // console.log(req.headers);
     // console.log(req.body);

@@ -48,35 +48,42 @@ async function deleteSubscription(subscriptionNameOrId) {
     console.log(`Subscription ${subscriptionNameOrId} deleted.`);
 }
 
-  
+
 async function listenForMessages(subscriptionNameOrId,frameNumber,videoName, callback) {
     // The low level API client requires a name only.
     const formattedSubscription =
       subscriptionNameOrId.indexOf('/') >= 0
         ? subscriptionNameOrId
         : subClient.subscriptionPath(project_id, subscriptionNameOrId);
-    console.log(`looking for ${frameNumber} frames, type of frameNumber is ${typeof frameNumber}`)
+    console.log(`looking for ${frameNumber} frames`)
     // The maximum number of messages returned for this request.
     // Pub/Sub may return fewer than the number specified.
     const subscription = pubSubClient.subscription(formattedSubscription);
 
-    let messageCount = 0;
     var dir = `./${videoName}`;
-    
-    const messageHandler = message => {
-    messageCount += 1;
-    imageName = pad(message.attributes.seqNum,3)
-    if (!fs.existsSync(dir)){ fs.mkdirSync(dir); }
-    fs.writeFile(`${dir}/pic${imageName}.png`,message.data,function (err){
-        if (err) return console.log(err);
-        console.log(`Saved frame number ${message.attributes.seqNum}`)
-    if (messageCount == frameNumber) {
-        console.log(`All ${frameNumber} frames are received`);
-        subscription.removeListener('message', messageHandler);
-        if(callback) callback(subscriptionNameOrId, videoName); 
-        return;
+    var frameArray = [];
+
+    for (var i = 1; i <= frameNumber; i++) {
+        frameArray.push(i);
     }
-    })
+    console.log(frameArray)
+    const messageHandler = message => {
+        imageName = pad(message.attributes.seqNum,3)
+        if (!fs.existsSync(dir)){ fs.mkdirSync(dir); }
+        if (parseInt(message.attributes.seqNum) in frameArray) {
+            console.log(`processing ${parseInt(message.attributes.seqNum)} now because it is in the array`)
+            fs.writeFile(`${dir}/pic${imageName}.png`,message.data,function (err){
+                if (err) { console.log(err); return};
+                console.log(`Saved frame number ${message.attributes.seqNum}`)
+                frameArray.splice(frameNumber-1,1)
+            if (frameArray.length==0) {
+                console.log(`All ${frameNumber} frames are received`);
+                subscription.removeListener('message', messageHandler);
+                if(callback) callback(subscriptionNameOrId, videoName); 
+                return;
+            }
+    }) 
+    }
 
     // "Ack" (acknowledge receipt of) the message
     message.ack();
@@ -84,12 +91,11 @@ async function listenForMessages(subscriptionNameOrId,frameNumber,videoName, cal
   // Listen for new messages until timeout is hit
   subscription.on('message', messageHandler);
   
-  setTimeout(() => {
-    subscription.removeListener('message', messageHandler);
-    console.log(`${messageCount} message(s) received, missing ${frameNumber - messageCount} frames.`);
-    if(callback) callback(subscriptionNameOrId, videoName); 
-    //  callback();
-  }, 100 * 1000);
+//   setTimeout(() => {
+//     subscription.removeListener('message', messageHandler);
+//     if(callback) callback(subscriptionNameOrId, videoName); 
+//     //  callback();
+//   }, 100 * 1000);
 
 
     // const request = {

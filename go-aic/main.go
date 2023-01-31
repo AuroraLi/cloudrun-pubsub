@@ -21,6 +21,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	// "errors"
 	"fmt"
 	"io"
@@ -204,17 +205,30 @@ func writeToFile(filename string, data string) {
 }
 
 func convertImage(file string) {
+	width, err := strconv.Atoi(os.Getenv("WIDTH"))
+	if err != nil {
+		panic(err)
+	}
+	color := os.Getenv("COLOR")
+	if len(color) == 0 {
+        color = "false"
+    }
+	color_bool, err := strconv.ParseBool(os.Getenv("COLOR"))
+    if err != nil {
+		panic(err)
+	}
 	fmt.Println("filename: " + file)
 	flags := aic_package.DefaultFlags()
 	flags.SaveImagePath = "."
-	// flags.OnlySave = true
-	flags.Dimensions = []int{50, 25}
+	flags.Colored = color_bool
+	flags.OnlySave = true
+	flags.Dimensions = []int{width * 2, width}
 	asciiArt, err := aic_package.Convert(file, flags)
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	fmt.Printf("the converted file is %v\n", asciiArt)
+	// fmt.Printf("the converted file is %v\n", asciiArt)
 
 }
 func (c *ClientUploader) UploadFile(file multipart.File, object string) error {

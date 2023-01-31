@@ -66,28 +66,32 @@ async function listenForMessages(subscriptionNameOrId,frameNumber,videoName, cal
     for (var i = 1; i <= frameNumber; i++) {
         frameArray.push(i);
     }
-    console.log(frameArray)
+    
     const messageHandler = message => {
         imageName = pad(message.attributes.seqNum,3)
         if (!fs.existsSync(dir)){ fs.mkdirSync(dir); }
-        if (parseInt(message.attributes.seqNum) in frameArray) {
-            console.log(`processing ${parseInt(message.attributes.seqNum)} now because it is in the array`)
+        messageFrameNumber = parseInt(message.attributes.seqNum)
+        var index = frameArray.indexOf(messageFrameNumber);
+        if (index !== -1) {
+        // if (messageFrameNumber in frameArray) {
+            console.log(`processing ${messageFrameNumber} now because it is in the array`)
             fs.writeFile(`${dir}/pic${imageName}.png`,message.data,function (err){
-                if (err) { console.log(err); return};
-                console.log(`Saved frame number ${message.attributes.seqNum}`)
-                frameArray.splice(frameNumber-1,1)
-            if (frameArray.length==0) {
-                console.log(`All ${frameNumber} frames are received`);
-                subscription.removeListener('message', messageHandler);
-                if(callback) callback(subscriptionNameOrId, videoName); 
-                return;
-            }
-    }) 
-    }
-
-    // "Ack" (acknowledge receipt of) the message
-    message.ack();
-  };
+              if (err) {
+                  console.log(`unable to save frame ${message.attributes.seqNum} due to error`);
+                  console.log(err); 
+                  return};
+              console.log(`Saved frame number ${message.attributes.seqNum}`)
+              frameArray.splice(index, 1);
+              message.ack();
+              if (frameArray.length==0) {
+                  console.log(`All ${frameNumber} frames are received`);
+                  subscription.removeListener('message', messageHandler);
+                  if(callback) callback(subscriptionNameOrId, videoName); 
+                  return;
+              }
+            })
+        };
+      };
   // Listen for new messages until timeout is hit
   subscription.on('message', messageHandler);
   
